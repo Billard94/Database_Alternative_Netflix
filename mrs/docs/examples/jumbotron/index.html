@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html class="full" lang="en">
+<body>
+
+  <!-- PHP CODE -->
+  <?php
+  # START A PHP SESSION
+  session_start();
+  
+  # DATABASE CONNECTION
+  include 'config.php';
+
+  # DO THIS WHEN THE USER CLICK {SEARCH} BUTTON
+  if (array_key_exists('search-button', $_GET)) {
+    # STORE SEARCH KEYWORDS IN THE SESSION AND IMPLEMENT {SEARCH.PHP}
+    $_SESSION['search'] = $_GET['search-box'];
+    $movie = $_GET['search-box'];
+    $search_option = $_GET['search-option'];
+    header("Location: search.php?movie=$movie&option=$search_option");
+      //exit();
+  }
+
+  # DO THIS IF THE USER IS LOGGED IN
+  if (isset($_SESSION['loggedin'])) {
+    include 'header2.php';
+    $user_id = $_SESSION['uid'];
+
+
+    # QUERY2: 
+    $query2 = "SELECT m2.movie_id, m2.name, m2.picture_url, EXTRACT(year FROM m2.date_released), ROUND(AVG(w.rating),1)
+    FROM project.movie m2, project.movie_topics mt2, project.topic t2, project.watches w
+    WHERE w.movie_id = m2.movie_id AND m2.movie_id = mt2.movie_id AND mt2.topic_id = t2.topic_id AND t2.topic_id IN(
+    SELECT t.topic_id
+    FROM project.profile p, project.watches w, project.movie m, project.movie_topics mt, project.topic t
+    WHERE $user_id = p.user_id AND p.user_id = w.user_id AND w.movie_id = m.movie_id AND m.movie_id = mt.movie_id AND mt.topic_id = t.topic_id
+    GROUP BY t.topic_id
+    ORDER BY COUNT(*) DESC
+    LIMIT 1) AND w.movie_id NOT IN(
+    SELECT movie_id
+    FROM project.watches
+    WHERE $user_id = user_id)
+    GROUP BY m2.movie_id, m2.name, m2.picture_url, m2.date_released";
+
+    # PREPARE STATEMENT 2
+    $result2 = pg_query($dbconn, $query2);
+    $stmt2 = pg_prepare($dbconn,'ps2',$query2);
+    //$result = pg_execute($dbconn,'ps',array());
+
+    # CHECK FOR RESULT 2
+    if (!$result2) { echo "SORRY, NO RESULT. "; die("Error in SQL query: " . pg_last_error());}
+
+
+    # QUERY1: SHOW MOVIE RECOMMENDATIONS BASED ON SIMILAR USERS
+    $query = "SELECT m.movie_id, m.name, m.picture_url, EXTRACT(year FROM m.date_released), ROUND(AVG(w.rating),1)
+    FROM project.watches w, project.profile p1, project.profile p2, project.movie m
+    WHERE p1.user_id = $user_id AND p1.year_born <= p2.year_born + 5 
+    AND p1.year_born >= p2.year_born - 5 AND p1.gender = p2.gender AND p2.user_id = w.user_id 
+    AND w.movie_id = m.movie_id AND w.rating IS NOT NULL 
+    AND m.movie_id IN (SELECT movie_id FROM project.watches  WHERE $user_id = user_id)
+    
+    GROUP BY  m.movie_id, m.picture_url, m.name, m.date_released
+    ORDER BY AVG(w.rating) DESC
+    LIMIT 4";
+
+    # PREPARE STATEMENT 1
+    $result = pg_query($dbconn, $query);
+    $stmt = pg_prepare($dbconn,'ps',$query);
+    //$result = pg_execute($dbconn,'ps',array());
+
+    # CHECK FOR RESULT 1
+    if (!$result) { echo "SORRY, NO RESULT. "; die("Error in SQL query: " . pg_last_error());}
+
+
+  } # THE USER IS NOT LOGGED IN? THEN SHOW THIS HEADER
+  else {include 'header.php';}
+  ?><!-- END OF PHP CODE -->
+
+
+  <!-- MAIN AREA FOR MARKETING MESSAGE OR CALL FOR ACTION -->
+  <div class="jumbotron">
+    <div class="container">
+      <h1>MovieBook</h1>
+      <p>MovieBook helps you find movies you will like. Rate movies to build a custom taste profile, then MovieBook recommends other movies for you to watch.</p>
+
+      <!-- REGISTERED USERS CAN SEE MOVIES -->
+      <?php if (isset($_SESSION['loggedin'])) { ?>
+      <p><a class="btn btn-primary btn-lg" href="/mrs/docs/examples/jumbotron/movies.php" role="button"><?php echo "Browse All Movies" ?> &raquo;</a></p>
+      <?php } else {?>
+
+      <!-- UNREGISTERED USERS WILL SEE REGISTRATION BUTTON --> 
+      <p><a class="btn btn-primary btn-lg" href="/mrs/docs/examples/jumbotron/register.php" role="button">Register Now &raquo;</a></p>
+      <?php } ?>
+      <br>
+
+      <!-- INCLUDE SEARCH-BOX -->
+      <?php if (isset($_SESSION['loggedin'])) { include 'search-box.php';} ?>
+      <!-- / INCLUDE SEARCH-BOX -->
+
+    </div>
+  </div>
+
+
+  <div class="container">
+    <!-- ///////////////////////////////////////  MOVIE ROWS  /////////////////////////////////////// -->
+    <?php if (isset($_SESSION['loggedin'])) { ?>
+    <div class="row">
+      <h2>Recommendations <small>based on similar users</small></h2>
+      <p><br></p>
+      <!-- LOOP through the results -->
+      <?php $row_count = pg_num_rows($result);
+      if ($row_count>0) { ?>
+
+      <style media="all">
+        h4,h5 {display: inline;}
+      </style>
+
+      <?php 
+      while ($row=pg_fetch_array($result)) { ?>
+      <div class="col-md-3">
+        <div class="thumbnail card">
+          <img src="<?php echo $row[2];?>" style="width:300px;height:400px;" class="">
+          <div class="caption">
+            <h4 class=""><?php echo $row[1]; ?>  <h5>  (<?php echo $row[3]; ?>)</h5></h4>
+            <p class=""><b>Rate:  </b><span class="label label-info tags"><?php echo $row[4]; ?></span> 
+
+            </p>
+          </p>
+          <a href="#" class="btn btn-default btn-xs pull-right" role="button"><i class="fa fa-edit"></i></a>  <a href="movie-details.php?movieid=<?php echo $row[0];?> 
+          <?php /* store movie id in session */ $movieid = $row[0]; $_SESSION['movieid'] = $movieid;?>
+          " class="btn btn-default btn-xs" name=$movieid role="button">Movie Info</a>
+        </div>
+      </div>
+    </div>
+    <?php } ?> <?php }} ?>
+  </div>
+  <!--/row-->
+  <!-- ///////////////////////////////////////  END OF MOVIE ROWS  /////////////////////////////////////// -->
+</div><!--  end of container -->
+
+<div class="container">
+  <!-- ///////////////////////////////////////  MOVIE ROWS2  /////////////////////////////////////// -->
+  <?php if (isset($_SESSION['loggedin'])) { ?>
+  <div class="row">
+    <h2>Recommendations <small>based on topics you like</small></h2>
+    <p><br></p>
+    <!-- LOOP through the results -->
+    <?php $row_count = pg_num_rows($result);
+    if ($row_count>0) { ?>
+
+    <style media="all">
+      h4,h5 {display: inline;}
+    </style>
+
+    <?php 
+    while ($row2=pg_fetch_array($result2)) { ?>
+    <div class="col-md-3">
+      <div class="thumbnail card">
+        <img src="<?php echo $row2[2];?>" style="width:300px;height:400px;" class="">
+        <div class="caption">
+          <h4 class=""><?php echo $row2[1]; ?>  <h5>  (<?php echo $row2[3]; ?>)</h5></h4>
+          <p class=""><b>Rate:  </b><span class="label label-info tags"><?php echo $row2[4]; ?></span> 
+
+          </p>
+        </p>
+        <a href="#" class="btn btn-default btn-xs pull-right" role="button"><i class="fa fa-edit"></i></a>  <a href="movie-details.php?movieid=<?php echo $row2[0];?> 
+        <?php /* store movie id in session */ $movieid = $row2[0]; $_SESSION['movieid'] = $movieid;?>
+        " class="btn btn-default btn-xs" name=$movieid role="button">Movie Info</a>
+      </div>
+    </div>
+  </div>
+  <?php } ?> <?php }} ?>
+</div>
+<!--/row-->
+<!-- ///////////////////////////////////////  END OF MOVIE ROWS  /////////////////////////////////////// -->
+</div><!--  end of container -->
+
+
+
+<!-- PROJECT TEAM -->
+<div class="container">
+  <!-- Example row of columns -->
+  <div class="row">
+    <div class="col-md-4">
+      <h2>Ahmed Al Abdulmohsen</h2>
+      <p>Software Engineering <br> #######</p>
+    </div>
+    <div class="col-md-4">
+      <h2>Alexandre Billard</h2>
+      <p>Computer Science <br> #######</p>
+    </div>
+    <div class="col-md-4">
+      <h2>Maxime Daneau</h2>
+      <p>Computer Science <br> #######</p>
+    </div>
+  </div>
+  <hr>
+
+  <footer>
+    <?php include 'footer.php'; ?>
+  </footer>
+
+</div> <!-- / PROJECT TEAM -->
+
+    <!-- Bootstrap core JavaScript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+    <script>window.jQuery || document.write('<script src="../../assets/js/vendor/jquery.min.js"><\/script>')</script>
+    <script src="../../dist/js/bootstrap.min.js"></script>
+    <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
+    <script src="../../assets/js/ie10-viewport-bug-workaround.js"></script>
+
+
+  </body>
+
+  </html>
